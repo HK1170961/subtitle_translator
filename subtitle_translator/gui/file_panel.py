@@ -9,8 +9,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
-from .icons import add_file_icon, add_folder_icon, remove_icon, clear_icon
-
 
 class FilePanel(QWidget):
     """文件管理面板 - 支持拖拽导入"""
@@ -26,19 +24,19 @@ class FilePanel(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(16, 16, 16, 12)
         layout.setSpacing(10)
 
         # 标题栏
         header = QHBoxLayout()
         header.setSpacing(8)
-        title = QLabel("字幕/视频文件")
-        title.setStyleSheet("font-size: 15px; font-weight: 700;")
+        title = QLabel("字幕 / 视频文件")
+        title.setObjectName("section_title")
         header.addWidget(title)
         header.addStretch()
 
         self._count_label = QLabel("0 个文件")
-        self._count_label.setStyleSheet("color: #8E8E93; font-size: 12px;")
+        self._count_label.setObjectName("caption_label")
         header.addWidget(self._count_label)
 
         layout.addLayout(header)
@@ -55,13 +53,11 @@ class FilePanel(QWidget):
         btn_layout.setSpacing(8)
 
         self._btn_add = QPushButton("添加文件")
-        self._btn_add.setIcon(add_file_icon())
         self._btn_add.setObjectName("primary")
         self._btn_add.clicked.connect(self._add_files)
         btn_layout.addWidget(self._btn_add)
 
         self._btn_add_dir = QPushButton("添加文件夹")
-        self._btn_add_dir.setIcon(add_folder_icon())
         self._btn_add_dir.setObjectName("secondary")
         self._btn_add_dir.clicked.connect(self._add_folder)
         btn_layout.addWidget(self._btn_add_dir)
@@ -69,13 +65,11 @@ class FilePanel(QWidget):
         btn_layout.addStretch()
 
         self._btn_remove = QPushButton("移除选中")
-        self._btn_remove.setIcon(remove_icon())
         self._btn_remove.setObjectName("danger")
         self._btn_remove.clicked.connect(self._remove_selected)
         btn_layout.addWidget(self._btn_remove)
 
         self._btn_clear = QPushButton("清空")
-        self._btn_clear.setIcon(clear_icon())
         self._btn_clear.setObjectName("secondary")
         self._btn_clear.clicked.connect(self._clear_all)
         btn_layout.addWidget(self._btn_clear)
@@ -84,12 +78,8 @@ class FilePanel(QWidget):
 
         # 拖拽提示
         self._drop_hint = QLabel("拖拽字幕或视频文件到此处")
+        self._drop_hint.setObjectName("drop_hint")
         self._drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._drop_hint.setStyleSheet(
-            "color: #8E8E93; font-size: 13px; padding: 24px; "
-            "border: 2px dashed #C6C6C8; border-radius: 10px; "
-            "background: rgba(0, 0, 0, 0.02);"
-        )
         layout.addWidget(self._drop_hint)
 
     @property
@@ -117,17 +107,28 @@ class FilePanel(QWidget):
                 self._add_file_list(found)
 
     def _add_file_list(self, files: list[str]):
+        existing = set(self._files)
         for f in files:
-            if f not in self._files and os.path.isfile(f):
+            if f not in existing and os.path.isfile(f):
                 self._files.append(f)
+                existing.add(f)
                 self._list.addItem(os.path.basename(f))
         self._update_ui()
 
     def _remove_selected(self):
-        selected = self._list.currentRow()
-        if selected >= 0:
-            self._files.pop(selected)
-            self._list.takeItem(selected)
+        # 支持多选删除：从大到小移除，避免下标错位
+        rows = sorted(set(idx.row() for idx in self._list.selectedIndexes()),
+                      reverse=True)
+        if not rows:
+            # 兜底：若用户未多选但选中了单项，按 currentRow 删除
+            cur = self._list.currentRow()
+            if cur >= 0:
+                rows = [cur]
+        for row in rows:
+            if 0 <= row < len(self._files):
+                self._files.pop(row)
+                self._list.takeItem(row)
+        if rows:
             self._update_ui()
 
     def _clear_all(self):
@@ -143,7 +144,7 @@ class FilePanel(QWidget):
 
     def _on_selection_changed(self):
         rows = sorted(set(idx.row() for idx in self._list.selectedIndexes()))
-        if rows:
+        if rows and 0 <= rows[0] < len(self._files):
             self.file_selected.emit(self._files[rows[0]])
 
     @staticmethod
