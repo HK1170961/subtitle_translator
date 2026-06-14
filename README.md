@@ -1,11 +1,11 @@
 # Subtitle Translator
 
-基于 PyQt6 + llama-server + Whisper 的本地字幕翻译工具，支持从视频中自动提取字幕并翻译为中文。
+基于 PyQt6 + llama-server + Faster-Whisper 的本地字幕翻译工具，支持从视频中自动提取字幕并翻译为中文。
 
 ## 功能特性
 
 - **字幕翻译** — 通过 llama-server 调用本地大模型翻译字幕，支持批量翻译 + 上下文参考
-- **Whisper 字幕提取** — 从视频文件中自动提取字幕（视频→音频→人声分离→转录→SRT）
+- **Whisper 字幕提取** — 使用 faster-whisper Python API 从视频文件中自动提取字幕（视频→音频→人声分离→转录→SRT）
 - **UVR 人声分离** — 使用 UVR MDXNET 分离人声与伴奏，提升转录准确度
 - **双语字幕** — 支持生成原文+译文双语字幕（SRT/ASS 格式）
 - **多格式支持** — 字幕：SRT、ASS/SSA；视频：MP4、MKV、AVI、WebM、TS、MOV
@@ -23,27 +23,41 @@
 pip install -r subtitle_translator/requirements.txt
 ```
 
+或双击 `run.bat`（自动安装依赖并启动）。
+
 依赖列表：
 - PyQt6 >= 6.5.0
 - requests >= 2.28.0
 - chardet >= 5.0.0
-- onnxruntime-gpu >= 1.16.0
+- faster-whisper >= 1.0.0
 
-### 2. 启动程序
+### 2. 准备工具
+
+将以下工具放入对应目录：
+
+```
+项目根目录/
+├── llama/
+│   ├── llama-server.exe         # llama.cpp 服务器
+│   ├── *.dll                    # 运行时依赖
+│   └── *.gguf                   # 翻译模型（需手动下载）
+└── subtitle_translator/
+    └── tools/
+        ├── ffmpeg/
+        │   └── ffmpeg.exe       # 音视频处理
+        └── separate/
+            ├── separate.exe     # UVR 人声分离工具
+            ├── UVR_MDXNET_KARA_2.onnx  # 分离模型
+            └── _internal/       # PyInstaller 运行时依赖
+```
+
+### 3. 启动程序
 
 ```bash
 python -m subtitle_translator.main
 ```
 
-或双击 `run.bat`（自动检查环境并启动）。
-
-### 3. 单独启动 llama-server
-
-```bash
-llama\llama-server.exe -m llama\Sakura-Galtransl-7B-v3.7.gguf --host 127.0.0.1 --port 8080
-```
-
-或双击 `start_server.bat`。
+或双击 `run.bat`。
 
 ## 项目结构
 
@@ -56,7 +70,7 @@ subtitle_translator/
 │   ├── srt_parser.py          # SRT 字幕解析
 │   ├── ass_parser.py          # ASS/SSA 字幕解析
 │   ├── batch_processor.py     # 批量翻译工作线程
-│   └── whisper_extractor.py   # Whisper 提取流程
+│   └── whisper_extractor.py   # Whisper 提取流程（faster-whisper API）
 ├── gui/
 │   ├── main_window.py         # 主窗口
 │   ├── file_panel.py          # 文件管理面板
@@ -66,7 +80,6 @@ subtitle_translator/
 │   └── config.py              # 配置管理
 └── tools/
     ├── ffmpeg/ffmpeg.exe      # 音视频处理
-    ├── whisper/               # Whisper 引擎 + 模型
     └── separate/              # UVR 人声分离工具
 ```
 
@@ -82,23 +95,27 @@ subtitle_translator/
 
 ### Whisper 参数
 
-在设置面板的「Whisper 提取」中输入，支持模板变量：
+在设置面板的「Whisper 提取」中选择模型与语言：
 
-| 变量 | 说明 |
+| 模型 | 说明 |
 |------|------|
-| `$whisper_file` | 模型文件完整路径 |
-| `$language` | 语言代码 |
-| `$input` | 输入 WAV 文件路径 |
-| `$output` | 输出基础路径（无扩展名） |
+| large-v3-turbo | 推荐，速度快质量高 |
+| large-v3 | 最高质量 |
+| medium | 平衡选择 |
+| small | 轻量 |
+| base | 最小可用 |
+| tiny | 速度最快，质量有限 |
 
-示例：
-```
--m $whisper_file -osrt -l $language -f $input -of $output --vad --vad-model ggml-silero-v5.1.2.bin
-```
+模型**首次使用时自动从 HuggingFace 下载**（需联网），缓存后离线可用。
+国内网络可使用 hf-mirror.com 镜像站。
+
+语言可选 `ja/en/zh/ko/auto`。
 
 ### 输出文件命名
 
-翻译后的字幕文件命名为 `原名_中文字幕.srt`，重名自动追加 `_1`、`_2` 等后缀。
+- 提取的字幕文件：`原名.srt`
+- 翻译后的字幕文件：`原名_中文字幕.srt`
+- 重名自动追加 `_1`、`_2` 等后缀
 
 ## 工具调用链
 
@@ -107,7 +124,7 @@ subtitle_translator/
   → [ffmpeg] .ts 转 .mp4（如果是 .ts 格式）
   → [ffmpeg] 提取 16kHz 单声道 WAV
   → [separate.exe] UVR 人声分离（可选）
-  → [whisper-cli] 语音识别转录 → .srt
+  → [faster-whisper] Python API 语音识别转录 → .srt
   → [llama-server] 批量翻译 → 中文字幕
 ```
 
@@ -116,13 +133,11 @@ subtitle_translator/
 | 工具 | 用途 |
 |------|------|
 | llama-server.exe | 本地 LLM 推理服务器 |
-| whisper-cli.exe | Whisper 语音识别转录 |
+| faster-whisper | Python API 语音识别转录（CTranslate2 后端，自动下载模型） |
 | ffmpeg.exe | 音视频处理 |
 | separate.exe | UVR 人声分离 |
 
 ## 模型下载
-
-本项目需要翻译模型和 Whisper 模型，请手动下载并放置到对应目录。
 
 ### 翻译模型（放入 `llama/` 目录）
 
@@ -135,15 +150,17 @@ subtitle_translator/
 
 下载后将 `.gguf` 文件放入 `llama/` 目录，程序会自动扫描。
 
-### Whisper 模型（放入 `tools/whisper/` 目录）
+### Whisper 模型（自动下载）
 
-| 模型 | 下载地址 | 说明 |
-|------|---------|------|
-| ggml-large-v3-turbo.bin | [HuggingFace](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin) | 推荐，速度快质量高 |
-| ggml-large-v3.bin | [HuggingFace](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin) | 最高质量 |
-| ggml-medium.bin | [HuggingFace](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin) | 平衡选择 |
+Faster-Whisper 模型在首次使用时**自动从 HuggingFace 下载**，无需手动操作。
 
-VAD 模型 `ggml-silero-v5.1.2.bin` 已包含在项目中，无需额外下载。
+| 模型 | 来源 | 说明 |
+|------|------|------|
+| large-v3-turbo | [Systran/faster-whisper-large-v3-turbo](https://huggingface.co/Systran/faster-whisper-large-v3-turbo) | 推荐，速度快质量高 |
+| large-v3 | [Systran/faster-whisper-large-v3](https://huggingface.co/Systran/faster-whisper-large-v3) | 最高质量 |
+| medium | [Systran/faster-whisper-medium](https://huggingface.co/Systran/faster-whisper-medium) | 平衡选择 |
+
+下载后缓存至 `~/.cache/huggingface/hub/`，之后离线可用。
 
 ## 配置文件
 

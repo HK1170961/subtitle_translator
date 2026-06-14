@@ -16,7 +16,7 @@ if %errorlevel% neq 0 (
 
 REM Install dependencies
 echo Checking dependencies...
-pip install -q PyQt6 requests chardet 2>nul
+pip install -q PyQt6 requests chardet faster-whisper 2>nul
 
 REM Start application
 echo Starting Subtitle Translator...
