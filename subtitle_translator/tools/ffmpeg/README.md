@@ -1,0 +1,1 @@
+下载ffmpeg(https://ffmpeg.org/download.html)放入EXE文件
